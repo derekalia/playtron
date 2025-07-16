@@ -1,6 +1,6 @@
-# Electron Browser MCP Server
+# MCP Server for Electron Browser
 
-A standalone MCP (Model Context Protocol) server that provides AI assistants with the ability to control the Electron browser via Chrome DevTools Protocol (CDP). Compatible with any MCP client.
+A standalone MCP (Model Context Protocol) server that communicates with the Electron browser via Chrome DevTools Protocol (CDP). This server enables AI assistants to control web browsers programmatically through the MCP protocol.
 
 ## Features
 
@@ -13,22 +13,23 @@ A standalone MCP (Model Context Protocol) server that provides AI assistants wit
 ## Prerequisites
 
 - Node.js 18+
-- The Electron browser must be running with CDP enabled on port 9222
+- The Electron browser component must be running with CDP enabled on port 9222
 
-### Starting Electron Browser with CDP
+### Starting the Browser
 
-For the MCP server to work, you need an Electron browser running with Chrome DevTools Protocol enabled:
+The MCP server requires the Electron browser to be running first:
 
 ```bash
-# Example: Start Electron app with CDP enabled
-electron . --remote-debugging-port=9222
+# From the project root
+cd browser-test && npm run dev
 ```
 
-Or if you have a custom Electron app, ensure it starts with CDP enabled on port 9222.
+This starts the browser with CDP enabled on port 9222.
 
 ## Installation
 
 ```bash
+cd mcp-server
 npm install
 ```
 
@@ -46,9 +47,9 @@ The server will:
 3. Start MCP server and begin listening for connections via stdio
 4. Log all operations for debugging
 
-### MCP Client Configuration
+### Claude Desktop Configuration
 
-Add to your MCP client configuration:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -64,107 +65,30 @@ Add to your MCP client configuration:
 
 ## Available MCP Tools
 
-### Navigation Tools
-- `navigate(url, waitUntil?)` - Navigate to URL
-- `goBack()` - Go back in history
-- `goForward()` - Go forward in history
-- `reload(waitUntil?)` - Reload current page
-- `getPageInfo()` - Get current page URL and title
+### Navigation
+- `navigate` - Navigate to URL with wait options and timeout handling
+- `goBack`, `goForward`, `reload` - Browser navigation controls
+- `getPageInfo` - Get current page URL and title
 
-### Tab Management Tools
-- `createTab(url?)` - Create new tab with optional URL
-- `switchTab(tabId)` - Switch to specific tab
-- `listTabs()` - List all available tabs
+### Interaction
+- `click` - Click elements with CSS/XPath selectors and auto-scroll
+- `type` - Type text with configurable delay
+- `fill` - Fill input fields instantly
+- `selectOption` - Select dropdown options
+- `setChecked` - Check/uncheck checkboxes
 
-### Interaction Tools
-- `click(selector, options?)` - Click elements
-- `type(selector, text, options?)` - Type text
-- `fill(selector, value)` - Fill input fields
-- `selectOption(selector, value)` - Select dropdown options
-- `setChecked(selector, checked)` - Check/uncheck boxes
+### Inspection
+- `screenshot` - Capture full page or element screenshots
+- `getAccessibilitySnapshot` / `browser_snapshot` - Extract page structure without screenshots
+- `getText` - Get text using Playwright selectors (text=, role=, etc.)
+- `evaluate` - Execute JavaScript in page context
+- `waitForSelector` - Wait for elements to appear
 
-### Inspection Tools
-- `screenshot(fullPage?, selector?)` - Take screenshots
-- `browser_snapshot()` - Get accessibility tree
-- `getText(selector, all?)` - Get element text
-- `evaluate(expression)` - Execute JavaScript
-- `waitForSelector(selector, options?)` - Wait for elements
+### Tab Management
+- `createTab` - Create new browser tabs with optional URL
+- `switchTab` - Switch between tabs by ID
+- `listTabs` - List all tabs with URLs and titles
 
-## Navigation Best Practices
-
-Based on real-world usage patterns, here are recommended practices for effective browser automation:
-
-### 1. Always Take Snapshots After Page Changes
-
-The most important pattern is to use `browser_snapshot()` after any action that changes the page:
-
-```javascript
-// Navigate to a page
-await navigate({ url: "https://example.com" });
-// IMPORTANT: Take a snapshot to understand the page structure
-await browser_snapshot();
-
-// Click an element
-await click({ selector: "button.submit" });
-// IMPORTANT: Take another snapshot to see what changed
-await browser_snapshot();
-```
-
-### 2. Use Snapshots to Find Elements
-
-Before attempting to interact with elements, take a snapshot to understand the page structure:
-
-```javascript
-// First, understand what's on the page
-const snapshot = await browser_snapshot();
-// The snapshot shows element references like [0], [1], [2] with their roles and text
-// Use these references or create selectors based on the structure
-
-// Click using a reference from the snapshot
-await click({ ref: "[5]" }); // Click the element labeled [5] in the snapshot
-```
-
-### 3. Prefer Semantic Selectors
-
-Use Playwright's powerful selector engine for more reliable automation:
-
-- `text=` for text content: `click({ selector: "text=Sign In" })`
-- `role=` for ARIA roles: `click({ selector: "role=button[name='Submit']" })`
-- Combine selectors: `fill({ selector: "role=textbox[name='Email']", value: "test@example.com" })`
-
-### 4. Handle Dynamic Content
-
-For pages with dynamic content:
-
-```javascript
-// Wait for content to load
-await waitForSelector({ selector: "div.results", state: "visible" });
-// Then take a snapshot to see what loaded
-await browser_snapshot();
-```
-
-### 5. Verify Actions Succeeded
-
-Always verify that your actions had the intended effect:
-
-```javascript
-// Fill a form field
-await fill({ selector: "input#username", value: "testuser" });
-// Take a snapshot to confirm the value was entered
-await browser_snapshot();
-
-// For navigation, check the page info
-await navigate({ url: "https://example.com/login" });
-const info = await getPageInfo();
-// Verify we're on the right page
-```
-
-### Common Pitfalls to Avoid
-
-1. **Not taking snapshots**: Without snapshots, you're navigating blind
-2. **Using generic selectors**: Prefer specific text or role selectors over generic CSS
-3. **Not waiting for dynamic content**: Use `waitForSelector` before interacting
-4. **Assuming page structure**: Always verify with a snapshot first
 
 ## Debugging
 
@@ -210,50 +134,38 @@ The Inspector provides:
 
 ## Development
 
-### Running in Development Mode
-
 ```bash
-npm run dev
-```
-
-### Building
-
-```bash
-npm run build
+npm start          # Start MCP server (connects to browser via CDP)
+npm run dev        # Development mode (same as start)
+npm run build      # Build TypeScript to dist/
+npm run lint       # Run ESLint on TypeScript files
+npm run test       # Test MCP connection
 ```
 
 ### Testing
 
 ```bash
-# Test basic MCP connection
-npm test
+# Test MCP connection
+npm run test
 
-# Test tool registration
-npm run test-tools
-
-# Test MCP Inspector compatibility
-npm run test-inspector
-
-# Test direct Inspector-style requests
-npm run test-direct
-
-# Test browser waiting behavior
-npm run test-waiting
-
-# Launch MCP Inspector for interactive testing
-npm run inspect
-```
-
-### Linting
-
-```bash
-npm run lint
+# Test available tools
+node test-tools.js
 ```
 
 ## Architecture
 
+### Communication Flow
 ```
-MCP Client <-> MCP Server <-> CDP (localhost:9222) <-> Electron Browser
+MCP Client <-> MCP Server (stdio) <-> CDP (localhost:9222) <-> Electron Browser
 ```
 
-The server connects to the Electron browser's CDP endpoint and translates MCP tool calls into Playwright automation commands, providing a seamless interface for AI assistants to control the browser.
+### Core Components
+- **MCP Server** (`src/index.ts`) - FastMCP server with Playwright CDP connector
+- **CDP Connector** (`src/playwright-cdp-connector.ts`) - Bridges Playwright to Electron's CDP endpoint
+
+## Related Documentation
+
+For more information:
+- Main project README: `../README.md`
+- Browser component documentation: `../browser-test/README.md`
+- Development guide: `../CLAUDE.md`
