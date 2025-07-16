@@ -1,0 +1,50 @@
+{
+  "name": "electron-browser-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for Electron browser control via CDP - compatible with any MCP client",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx src/index.ts",
+    "start:sse": "TRANSPORT_TYPE=httpStream MCP_PORT=3001 tsx src/index.ts",
+    "start:httpStream": "TRANSPORT_TYPE=httpStream MCP_PORT=3001 tsx src/index.ts",
+    "start:stdio": "TRANSPORT_TYPE=stdio tsx src/index.ts",
+    "start:port": "npm run start:httpStream",
+    "build": "tsc",
+    "lint": "eslint --ext .ts src/",
+    "test": "node test-mcp-connection.js",
+    "test-tools": "node test-tools.js",
+    "test-inspector": "node test-mcp-inspector.js",
+    "test-direct": "node test-direct-inspector.js",
+    "test-waiting": "node test-browser-waiting.js",
+    "test-sse": "node test-sse-connection.js",
+    "inspect": "node run-inspector.js"
+  },
+  "keywords": [
+    "mcp",
+    "electron",
+    "browser",
+    "playwright",
+    "cdp"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "eventsource": "^4.0.0",
+    "fastmcp": "^3.9.0",
+    "node-fetch": "^3.3.2",
+    "playwright": "^1.54.1",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
