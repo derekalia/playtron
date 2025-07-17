@@ -10,6 +10,8 @@ export class PlaywrightCDPConnector {
   private page: Page | null = null;
   private cdpEndpoint: string = 'http://localhost:9222';
   private tabPageMap: Map<string, Page> = new Map(); // Track tabs by their ID
+  private pageToTabMap: Map<Page, string> = new Map(); // Reverse mapping
+  private currentTabId: string | null = null; // Track current tab
 
   constructor() {
     console.log('[PlaywrightCDP] Connector initialized');
@@ -380,6 +382,16 @@ export class PlaywrightCDPConnector {
       console.log(`[PlaywrightCDP] Page ${i}: ${url} (closed: ${isClosed})`);
     }
     
+    // If we have a current tab ID, try to maintain that page
+    if (this.currentTabId && this.tabPageMap.has(this.currentTabId)) {
+      const targetPage = this.tabPageMap.get(this.currentTabId);
+      if (targetPage && !targetPage.isClosed()) {
+        this.page = targetPage;
+        console.log(`[PlaywrightCDP] Maintaining current tab ${this.currentTabId}: ${this.page.url()}`);
+        return;
+      }
+    }
+    
     // If current page is closed, find a new one
     if (this.page && this.page.isClosed()) {
       console.log('[PlaywrightCDP] Current page is closed, finding new page...');
@@ -446,8 +458,12 @@ export class PlaywrightCDPConnector {
     }
     
     try {
+      // Store the current pages before creating new tab
+      const pagesBefore = this.context.pages().filter(p => 
+        !p.url().includes('localhost') && !p.url().includes('webpack') && !p.url().includes('file://')
+      );
+      
       // Create tab by evaluating JavaScript in the main renderer process
-      // This will trigger the IPC call to create a new tab
       const pages = this.context.pages();
       let mainPage = null;
       
@@ -463,40 +479,48 @@ export class PlaywrightCDPConnector {
         throw new Error('Could not find main renderer page to create tab');
       }
       
-      // Use the Electron API to create a new tab
-      const tabId = await mainPage.evaluate((url: string) => {
+      // Get the actual tab ID from Electron
+      const tabId = await mainPage.evaluate(async (url: string) => {
         const win = window as any;
         if (win.electronAPI && win.electronAPI.createTab) {
-          win.electronAPI.createTab(url);
-          // Return a timestamp-based ID (matches how Electron creates tab IDs)
-          return Date.now().toString();
+          // This should return the actual tab ID created by Electron
+          return await win.electronAPI.createTab(url);
         }
         throw new Error('electronAPI not available');
       }, url);
       
       console.log(`[PlaywrightCDP] Created tab with ID: ${tabId}`);
       
-      // Wait a bit for the tab to be created
+      // Wait for the new page to appear
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Find the new page that was created
-      const newPages = this.context.pages();
-      for (const page of newPages) {
-        if (!this.tabPageMap.has(tabId) && !page.url().includes('localhost') && !page.url().includes('webpack')) {
-          // This might be our new tab - check if it's not already tracked
-          let isTracked = false;
-          for (const [, trackedPage] of this.tabPageMap) {
-            if (trackedPage === page) {
-              isTracked = true;
-              break;
-            }
-          }
-          if (!isTracked) {
-            this.tabPageMap.set(tabId, page);
-            console.log(`[PlaywrightCDP] Mapped tab ${tabId} to page: ${page.url()}`);
+      const pagesAfter = this.context.pages().filter(p => 
+        !p.url().includes('localhost') && !p.url().includes('webpack') && !p.url().includes('file://')
+      );
+      
+      // Find the page that wasn't there before
+      let newPage: Page | null = null;
+      for (const page of pagesAfter) {
+        let isNew = true;
+        for (const oldPage of pagesBefore) {
+          if (page === oldPage) {
+            isNew = false;
             break;
           }
         }
+        if (isNew) {
+          newPage = page;
+          break;
+        }
+      }
+      
+      if (newPage) {
+        this.tabPageMap.set(tabId, newPage);
+        this.pageToTabMap.set(newPage, tabId);
+        console.log(`[PlaywrightCDP] Mapped tab ${tabId} to page: ${newPage.url()}`);
+      } else {
+        console.warn(`[PlaywrightCDP] Could not find new page for tab ${tabId}`);
       }
       
       return tabId;
@@ -543,10 +567,16 @@ export class PlaywrightCDPConnector {
       // Update our current page to the switched tab
       if (this.tabPageMap.has(tabId)) {
         this.page = this.tabPageMap.get(tabId) || null;
+        this.currentTabId = tabId;
         console.log(`[PlaywrightCDP] Switched to tab ${tabId}: ${this.page?.url()}`);
       } else {
-        console.log(`[PlaywrightCDP] Tab ${tabId} not found in map, will auto-detect`);
-        // Let ensureCorrectPage handle finding the right page
+        console.log(`[PlaywrightCDP] Tab ${tabId} not found in map, will wait for page switch`);
+        this.currentTabId = tabId;
+        
+        // Wait a bit for the tab switch to complete
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to find the page that matches this tab
         await this.ensureCorrectPage();
       }
       
@@ -580,26 +610,71 @@ export class PlaywrightCDPConnector {
       }
       
       if (!mainPage) {
-        throw new Error('Could not find main renderer page to get tabs');
+        // Fallback to manual page listing
+        const pageInfo = [];
+        let index = 0;
+        for (const page of pages) {
+          if (!page.isClosed() && !page.url().includes('localhost') && !page.url().includes('webpack')) {
+            const tabId = this.pageToTabMap.get(page) || `page-${index}`;
+            pageInfo.push({
+              id: tabId,
+              url: page.url(),
+              title: await page.title().catch(() => 'Unknown'),
+              isActive: page === this.page
+            });
+            index++;
+          }
+        }
+        return pageInfo;
       }
       
       // Get tabs from the Electron renderer
-      await mainPage.evaluate(() => {
-        // This would require exposing a getTabs method, for now return basic info
-        return []; // We'll enhance this later
+      const electronTabs = await mainPage.evaluate(() => {
+        const win = window as any;
+        if (win.electronAPI && win.electronAPI.getTabs) {
+          return win.electronAPI.getTabs();
+        }
+        return null;
       });
       
-      // Also return info about all pages we can see
+      if (electronTabs && Array.isArray(electronTabs)) {
+        // Map Electron tabs to our page references
+        const result = [];
+        for (const tab of electronTabs) {
+          const page = this.tabPageMap.get(tab.id);
+          if (page) {
+            result.push({
+              id: tab.id,
+              url: page.url(),
+              title: await page.title().catch(() => tab.title || 'Unknown'),
+              isActive: tab.isActive || page === this.page
+            });
+          } else {
+            // Tab exists in Electron but we don't have a page reference yet
+            result.push({
+              id: tab.id,
+              url: tab.url || 'unknown',
+              title: tab.title || 'Unknown',
+              isActive: tab.isActive || false
+            });
+          }
+        }
+        return result;
+      }
+      
+      // Fallback: List pages we know about
       const pageInfo = [];
-      for (let i = 0; i < pages.length; i++) {
-        const page = pages[i];
+      let index = 0;
+      for (const page of pages) {
         if (!page.isClosed() && !page.url().includes('localhost') && !page.url().includes('webpack')) {
+          const tabId = this.pageToTabMap.get(page) || `page-${index}`;
           pageInfo.push({
-            id: `page-${i}`,
+            id: tabId,
             url: page.url(),
             title: await page.title().catch(() => 'Unknown'),
             isActive: page === this.page
           });
+          index++;
         }
       }
       
