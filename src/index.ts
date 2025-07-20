@@ -1,6 +1,73 @@
 import { FastMCP } from 'fastmcp';
 import { PlaywrightCDPConnector } from './playwright-cdp-connector';
 import { allTools } from './tools';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Singleton lock file path
+const LOCK_FILE = path.join(process.cwd(), '.playtron.lock');
+
+// Check if another instance is already running
+function checkExistingInstance(): boolean {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const pidData = fs.readFileSync(LOCK_FILE, 'utf-8');
+      const oldPid = parseInt(pidData, 10);
+      
+      // Check if the process with this PID is still running
+      try {
+        process.kill(oldPid, 0); // This doesn't kill the process, just checks if it exists
+        console.error(`[MCP-CDP] ⚠️  Another instance is already running (PID: ${oldPid})`);
+        console.error('[MCP-CDP] ⚠️  Please stop the existing instance before starting a new one');
+        console.error(`[MCP-CDP] ⚠️  You can run: kill ${oldPid}`);
+        return true;
+      } catch {
+        // Process doesn't exist, remove stale lock file
+        console.error('[MCP-CDP] 🧹 Removing stale lock file from previous instance');
+        fs.unlinkSync(LOCK_FILE);
+      }
+    }
+  } catch (error) {
+    console.error('[MCP-CDP] Error checking lock file:', error);
+  }
+  return false;
+}
+
+// Create lock file for this instance
+function createLockFile(): void {
+  try {
+    fs.writeFileSync(LOCK_FILE, process.pid.toString());
+    console.error(`[MCP-CDP] 🔒 Created lock file (PID: ${process.pid})`);
+  } catch (error) {
+    console.error('[MCP-CDP] Error creating lock file:', error);
+  }
+}
+
+// Remove lock file
+function removeLockFile(): void {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      const pidData = fs.readFileSync(LOCK_FILE, 'utf-8');
+      const lockPid = parseInt(pidData, 10);
+      
+      // Only remove if it's our lock file
+      if (lockPid === process.pid) {
+        fs.unlinkSync(LOCK_FILE);
+        console.error('[MCP-CDP] 🔓 Removed lock file');
+      }
+    }
+  } catch (error) {
+    console.error('[MCP-CDP] Error removing lock file:', error);
+  }
+}
+
+// Check for existing instance before starting
+if (checkExistingInstance()) {
+  process.exit(1);
+}
+
+// Create lock file for this instance
+createLockFile();
 
 const server = new FastMCP({
   name: 'playtron',
@@ -8,7 +75,7 @@ const server = new FastMCP({
 });
 
 // Log server capabilities
-console.error('[MCP-CDP] 🔍 FastMCP server starting...');
+console.error(`[MCP-CDP] 🔍 FastMCP server starting... (PID: ${process.pid})`);
 console.error('[MCP-CDP] 🔍 Registering tools from modular structure');
 
 // Global connector instance
@@ -28,12 +95,51 @@ process.on('unhandledRejection', (reason, promise) => {
   // Don't exit - try to recover
 });
 
-// Add heartbeat to show server is alive
-setInterval(() => {
+// Add heartbeat to show server is alive (every 5 minutes)
+const heartbeatInterval = setInterval(() => {
   console.error(`[MCP-CDP] Heartbeat - Server alive (PID: ${process.pid}, Requests: ${requestCount})`);
-}, 30000);
+}, 300000); // 5 minutes
 
-// Graceful shutdown
+// Status monitoring interval (will be set later)
+let statusInterval: NodeJS.Timeout | null = null;
+
+// Track if we're already shutting down to prevent multiple cleanup calls
+let isShuttingDown = false;
+
+// Graceful shutdown handler
+async function cleanup() {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+  
+  console.error('[MCP-CDP] Starting cleanup...');
+  
+  // Clear intervals
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+  }
+  if (statusInterval) {
+    clearInterval(statusInterval);
+  }
+  
+  // Disconnect from browser
+  if (connector) {
+    try {
+      await connector.disconnect();
+    } catch (error) {
+      console.error('[MCP-CDP] Error during disconnect:', error);
+    }
+  }
+  
+  // Remove lock file
+  removeLockFile();
+  
+  console.error('[MCP-CDP] Cleanup complete, exiting...');
+  process.exit(0);
+}
+
+// Handle all possible shutdown signals
 process.on('SIGINT', async () => {
   console.error('[MCP-CDP] Received SIGINT, shutting down gracefully...');
   await cleanup();
@@ -44,20 +150,26 @@ process.on('SIGTERM', async () => {
   await cleanup();
 });
 
-async function cleanup() {
-  if (connector) {
-    try {
-      await connector.disconnect();
-    } catch (error) {
-      console.error('[MCP-CDP] Error during disconnect:', error);
-    }
-  }
-  process.exit(0);
-}
+process.on('SIGHUP', async () => {
+  console.error('[MCP-CDP] Received SIGHUP, shutting down gracefully...');
+  await cleanup();
+});
+
+// Handle process exits
+process.on('exit', () => {
+  console.error('[MCP-CDP] Process exiting...');
+});
+
+// Handle when parent process dies (important for child processes)
+process.on('disconnect', async () => {
+  console.error('[MCP-CDP] Parent process disconnected, shutting down...');
+  await cleanup();
+});
 
 // Helper function to ensure we're connected
 async function ensureConnected(): Promise<void> {
-  console.error(`[MCP-CDP] ensureConnected called (request #${++requestCount})`);
+  // Increment request counter silently
+  requestCount++;
   
   try {
     // First check if browser is available
@@ -73,7 +185,7 @@ async function ensureConnected(): Promise<void> {
       isConnected = true;
       console.error('[MCP-CDP] Successfully connected to Electron browser');
     } else {
-      console.error('[MCP-CDP] Already connected, reusing connection');
+      // Already connected, reusing connection
     }
     
     // Ensure we're controlling the correct page (WebContentsView, not the UI)
@@ -85,7 +197,7 @@ async function ensureConnected(): Promise<void> {
       throw new Error('No page available in Playwright connection');
     }
     
-    console.error(`[MCP-CDP] Current page URL: ${page.url()}`);
+    // Connection successful
     
   } catch (error) {
     console.error('[MCP-CDP] Error in ensureConnected:', error);
@@ -153,27 +265,6 @@ async function checkElectronBrowser(): Promise<boolean> {
   }
 }
 
-// Check for browser in background without blocking server startup
-async function checkForElectronBrowserInBackground(): Promise<void> {
-  console.error('[MCP-CDP] 🔍 Starting background check for Electron browser...');
-  
-  // Run the check in the background
-  (async () => {
-    while (true) {
-      const isAvailable = await checkElectronBrowser();
-      if (isAvailable) {
-        console.error('[MCP-CDP] ✅ Electron browser detected in background!');
-        console.error('[MCP-CDP] 🔌 Browser is now available for connections');
-        return;
-      }
-      
-      // Check every 10 seconds in the background
-      await new Promise(resolve => setTimeout(resolve, 10000));
-    }
-  })().catch(error => {
-    console.error('[MCP-CDP] ❌ Background browser check error:', error);
-  });
-}
 
 // Start the server
 async function startServer() {
@@ -185,11 +276,11 @@ async function startServer() {
   console.error('[MCP-CDP] Features: Modular tools, accessibility snapshots, smart selectors');
   console.error('[MCP-CDP] ===========================================');
 
-  // Start checking for browser in the background (don't block)
-  checkForElectronBrowserInBackground();
+  // Browser connection will be established lazily when first tool is used
+  console.error('[MCP-CDP] 🔌 Browser connection will be established when needed');
 
   // Get port from environment or use default
-  const MCP_PORT = process.env.MCP_PORT || 3001;
+  const MCP_PORT = process.env.MCP_PORT || 3002;
   const TRANSPORT_TYPE = process.env.TRANSPORT_TYPE || 'httpStream';
 
   console.error(`[MCP-CDP] 🚀 Starting MCP server on port ${MCP_PORT} (${TRANSPORT_TYPE})...`);
@@ -230,7 +321,7 @@ async function startServer() {
       console.error('[MCP-CDP] 🔍 Waiting for client connections...');
       
       // Add status monitoring
-      setInterval(() => {
+      statusInterval = setInterval(() => {
         console.error(`[MCP-CDP] 📊 Status: ${requestCount} requests processed so far`);
       }, 10000);
     } else {

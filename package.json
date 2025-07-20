@@ -6,8 +6,9 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
-    "start:sse": "TRANSPORT_TYPE=httpStream MCP_PORT=3001 tsx src/index.ts",
-    "start:httpStream": "TRANSPORT_TYPE=httpStream MCP_PORT=3001 tsx src/index.ts",
+    "stop": "./stop-playtron.sh",
+    "start:sse": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 tsx src/index.ts",
+    "start:httpStream": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 tsx src/index.ts",
     "start:stdio": "TRANSPORT_TYPE=stdio tsx src/index.ts",
     "start:port": "npm run start:httpStream",
     "build": "tsc",
