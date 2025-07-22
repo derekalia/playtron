@@ -19,7 +19,7 @@ const waitFor = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_wait_for called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -69,7 +69,7 @@ const waitForSelector = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_wait_for_selector called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }

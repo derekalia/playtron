@@ -20,7 +20,7 @@ const screenshot = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_take_screenshot called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }

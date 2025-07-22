@@ -22,7 +22,7 @@ const pressKey = defineTool({
   handle: async (connector, params) => {
     console.error(`[MCP-CDP] Tool: browser_press_key called with key: ${params.key}`);
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -52,7 +52,7 @@ const type = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_type called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -104,7 +104,7 @@ const fill = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_fill called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -143,7 +143,7 @@ const selectOption = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_select_option called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -182,7 +182,7 @@ const setChecked = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_set_checked called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }

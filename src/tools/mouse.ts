@@ -32,7 +32,7 @@ const click = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_click called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -87,7 +87,7 @@ const hover = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_hover called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -133,7 +133,7 @@ const drag = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_drag called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -179,7 +179,7 @@ const mouseClickXY = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_mouse_click_xy called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -209,7 +209,7 @@ const mouseMoveXY = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_mouse_move_xy called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -241,7 +241,7 @@ const mouseDragXY = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_mouse_drag_xy called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }

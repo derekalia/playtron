@@ -2,52 +2,89 @@
 
 # Stop Playtron server gracefully
 
-echo "🛑 Stopping Playtron server..."
+echo "🛑 Stopping Playtron MCP Server..."
 
-# Check if lock file exists
-if [ -f ".playtron.lock" ]; then
-    PID=$(cat .playtron.lock)
+# Function to stop a process gracefully
+stop_process() {
+    local PID=$1
+    local NAME=$2
     
-    # Check if process exists
     if kill -0 $PID 2>/dev/null; then
-        echo "Found Playtron process (PID: $PID)"
+        echo "  Stopping $NAME (PID: $PID)..."
         
         # Send SIGTERM for graceful shutdown
         kill -TERM $PID
         
         # Wait for process to exit (max 5 seconds)
-        for i in {1..10}; do
-            if ! kill -0 $PID 2>/dev/null; then
-                echo "✅ Playtron server stopped successfully"
-                exit 0
-            fi
+        local count=0
+        while kill -0 $PID 2>/dev/null && [ $count -lt 10 ]; do
             sleep 0.5
+            count=$((count + 1))
         done
         
-        # If still running, force kill
-        echo "⚠️  Process didn't stop gracefully, forcing kill..."
-        kill -9 $PID
-        rm -f .playtron.lock
-    else
-        echo "⚠️  Lock file exists but process is not running"
-        rm -f .playtron.lock
+        if kill -0 $PID 2>/dev/null; then
+            echo "  ⚠️  Process didn't stop gracefully, forcing kill..."
+            kill -9 $PID
+        else
+            echo "  ✅ $NAME stopped successfully"
+        fi
     fi
-else
-    echo "No lock file found, checking for running processes..."
+}
+
+# Check for process info file (new method)
+if [ -f ".playtron.process.json" ]; then
+    echo "Found process info file"
     
-    # Find any playtron processes
-    PIDS=$(ps aux | grep -E "tsx.*src/index\.ts|node.*playtron" | grep -v grep | awk '{print $2}')
+    # Extract PIDs using basic tools (works on macOS)
+    WRAPPER_PID=$(grep '"wrapperPid"' .playtron.process.json | sed 's/[^0-9]//g')
+    CHILD_PID=$(grep '"childPid"' .playtron.process.json | sed 's/[^0-9]//g')
     
-    if [ -n "$PIDS" ]; then
-        echo "Found Playtron processes: $PIDS"
-        for PID in $PIDS; do
-            kill -TERM $PID
-        done
-        sleep 1
-        echo "✅ Stopped all Playtron processes"
-    else
-        echo "No Playtron processes found"
+    if [ -n "$WRAPPER_PID" ]; then
+        stop_process $WRAPPER_PID "Wrapper process"
     fi
+    
+    if [ -n "$CHILD_PID" ]; then
+        stop_process $CHILD_PID "Child process"
+    fi
+    
+    rm -f .playtron.process.json
 fi
 
-echo "🧹 Cleanup complete"
+# Check for lock file (legacy method)
+if [ -f ".playtron.lock" ]; then
+    echo "Found legacy lock file"
+    PID=$(cat .playtron.lock)
+    stop_process $PID "Legacy process"
+    rm -f .playtron.lock
+fi
+
+# Find any remaining playtron processes
+echo "Checking for any remaining processes..."
+
+# Find processes by name
+PIDS=$(ps aux | grep -E "playtron-mcp-server|tsx.*src/index\.ts|node.*playtron" | grep -v grep | awk '{print $2}')
+
+if [ -n "$PIDS" ]; then
+    echo "Found additional Playtron processes:"
+    for PID in $PIDS; do
+        # Get process info
+        PINFO=$(ps -p $PID -o comm= 2>/dev/null || echo "unknown")
+        echo "  PID $PID: $PINFO"
+        stop_process $PID "Process"
+    done
+else
+    echo "No additional Playtron processes found"
+fi
+
+# Clean up any stale files
+echo "🧹 Cleaning up..."
+rm -f .playtron.lock .playtron.process.json
+
+# Check if any processes are still running
+REMAINING=$(ps aux | grep -E "playtron-mcp-server|tsx.*src/index\.ts" | grep -v grep | wc -l)
+if [ $REMAINING -gt 0 ]; then
+    echo "⚠️  Warning: $REMAINING Playtron process(es) may still be running"
+    echo "You may need to manually kill them or run this script again"
+else
+    echo "✅ All Playtron processes have been stopped"
+fi

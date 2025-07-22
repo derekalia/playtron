@@ -1,4 +1,5 @@
 import { chromium, Browser, BrowserContext, Page } from 'playwright';
+import { TabApiClient } from './tab-api-client';
 
 /**
  * Connects Playwright to our Electron app via Chrome DevTools Protocol
@@ -12,10 +13,26 @@ export class PlaywrightCDPConnector {
   private tabPageMap: Map<string, Page> = new Map(); // Track tabs by their ID
   private pageToTabMap: Map<Page, string> = new Map(); // Reverse mapping
   private currentTabId: string | null = null; // Track current tab
+  private tabApiClient: TabApiClient;
+  private useTabApi: boolean = false;
 
   constructor() {
     console.log('[PlaywrightCDP] Connector initialized');
     console.log('[PlaywrightCDP] Will connect to CDP endpoint:', this.cdpEndpoint);
+    this.tabApiClient = new TabApiClient();
+  }
+
+  /**
+   * Check if Tab API is available
+   */
+  async checkTabApiAvailability(): Promise<void> {
+    this.useTabApi = await this.tabApiClient.isAvailable();
+    
+    if (this.useTabApi) {
+      console.log('[PlaywrightCDP] ✅ Tab API is available and will be used');
+    } else {
+      console.warn('[PlaywrightCDP] ⚠️ Tab API not available, using legacy approach');
+    }
   }
 
   /**
@@ -24,6 +41,9 @@ export class PlaywrightCDPConnector {
    */
   async connect(): Promise<void> {
     console.log('[PlaywrightCDP] Connecting to Electron via CDP...');
+    
+    // Check if Tab API is available
+    await this.checkTabApiAvailability();
     
     try {
       // Connect to the existing browser instance
@@ -333,8 +353,13 @@ export class PlaywrightCDPConnector {
 
   /**
    * Get the connected Playwright page instance
+   * Ensures we're using the correct page by syncing with Tab API if available
    */
-  getPage(): Page | null {
+  async getPage(): Promise<Page | null> {
+    // If using Tab API, sync to ensure we have the right page
+    if (this.useTabApi && this.tabApiClient) {
+      await this.syncWithActiveTab();
+    }
     return this.page;
   }
 
@@ -446,11 +471,51 @@ export class PlaywrightCDPConnector {
     }
   }
 
+
+
   /**
-   * Create a new tab by calling the Electron main process
-   * Returns the tab ID
+   * Remove a tab from internal tracking
    */
-  async createTab(url: string = 'https://www.google.com'): Promise<string> {
+  removeTab(tabId: string): void {
+    const page = this.tabPageMap.get(tabId);
+    if (page) {
+      this.pageToTabMap.delete(page);
+      this.tabPageMap.delete(tabId);
+      
+      if (this.currentTabId === tabId) {
+        this.currentTabId = null;
+        this.page = null;
+      }
+    }
+  }
+
+  /**
+   * Create a new tab using the Tab API
+   */
+  private async createTabViaApi(url: string): Promise<string> {
+    console.log(`[PlaywrightCDP] Creating new tab via API with URL: ${url}`);
+    
+    try {
+      // Use the new API
+      const tab = await this.tabApiClient.createTab(url);
+      
+      // Wait for CDP to recognize the new target
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Since the new tab is created and activated, we need to update our page reference
+      await this.syncWithActiveTab();
+      
+      return tab.id;
+    } catch (error) {
+      console.error('[PlaywrightCDP] Failed to create tab via API:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new tab using legacy approach
+   */
+  private async createTabLegacy(url: string): Promise<string> {
     console.log(`[PlaywrightCDP] Creating new tab with URL: ${url}`);
     
     if (!this.context) {
@@ -531,9 +596,43 @@ export class PlaywrightCDPConnector {
   }
 
   /**
-   * Switch to a specific tab
+   * Create a new tab - delegates to API or legacy approach
    */
-  async switchTab(tabId: string): Promise<boolean> {
+  async createTab(url: string = 'https://www.google.com'): Promise<string> {
+    if (this.useTabApi) {
+      return this.createTabViaApi(url);
+    } else {
+      return this.createTabLegacy(url);
+    }
+  }
+
+  /**
+   * Switch to a specific tab using the Tab API
+   */
+  private async switchTabViaApi(tabId: string): Promise<boolean> {
+    console.log(`[PlaywrightCDP] Switching to tab via API: ${tabId}`);
+    
+    try {
+      // Use the API to switch tabs
+      await this.tabApiClient.switchTab(tabId);
+      
+      // Wait a bit for the switch to take effect
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Sync with the active tab
+      await this.syncWithActiveTab();
+      
+      return true;
+    } catch (error) {
+      console.error('[PlaywrightCDP] Failed to switch tab via API:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Switch to a specific tab using legacy approach
+   */
+  private async switchTabLegacy(tabId: string): Promise<boolean> {
     console.log(`[PlaywrightCDP] Switching to tab: ${tabId}`);
     
     if (!this.context) {
@@ -565,19 +664,44 @@ export class PlaywrightCDPConnector {
       }, tabId);
       
       // Update our current page to the switched tab
-      if (this.tabPageMap.has(tabId)) {
-        this.page = this.tabPageMap.get(tabId) || null;
-        this.currentTabId = tabId;
-        console.log(`[PlaywrightCDP] Switched to tab ${tabId}: ${this.page?.url()}`);
-      } else {
-        console.log(`[PlaywrightCDP] Tab ${tabId} not found in map, will wait for page switch`);
-        this.currentTabId = tabId;
+      // Wait a bit for the tab switch to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Get all tabs from Electron to find the index
+      const electronTabs = await mainPage.evaluate(() => {
+        const win = window as any;
+        if (win.electronAPI && win.electronAPI.getTabs) {
+          return win.electronAPI.getTabs();
+        }
+        return null;
+      });
+      
+      if (electronTabs && Array.isArray(electronTabs)) {
+        const tabIndex = electronTabs.findIndex(t => t.id === tabId);
         
-        // Wait a bit for the tab switch to complete
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Try to find the page that matches this tab
-        await this.ensureCorrectPage();
+        if (tabIndex !== -1) {
+          // Get pages in the same order
+          const pages = this.context.pages().filter(p => 
+            !p.url().includes('localhost') && 
+            !p.url().includes('webpack') && 
+            !p.url().includes('file://')
+          );
+          
+          if (tabIndex < pages.length) {
+            const page = pages[tabIndex];
+            this.page = page;
+            this.currentTabId = tabId;
+            
+            // Update mappings
+            this.tabPageMap.set(tabId, page);
+            this.pageToTabMap.set(page, tabId);
+            
+            // Bring the page to front
+            await page.bringToFront();
+            
+            console.log(`[PlaywrightCDP] Switched to tab ${tabId} (index ${tabIndex}): ${page.url()}`);
+          }
+        }
       }
       
       return true;
@@ -588,9 +712,41 @@ export class PlaywrightCDPConnector {
   }
 
   /**
-   * List all available tabs
+   * Switch to a specific tab - delegates to API or legacy approach
    */
-  async listTabs(): Promise<any[]> {
+  async switchTab(tabId: string): Promise<boolean> {
+    if (this.useTabApi) {
+      return this.switchTabViaApi(tabId);
+    } else {
+      return this.switchTabLegacy(tabId);
+    }
+  }
+
+  /**
+   * List all tabs using the Tab API
+   */
+  private async listTabsViaApi(): Promise<any[]> {
+    console.log('[PlaywrightCDP] Listing all tabs via API');
+    
+    try {
+      const tabs = await this.tabApiClient.listTabs();
+      
+      return tabs.map(tab => ({
+        id: tab.id,
+        url: tab.url,
+        title: tab.title,
+        isActive: tab.isActive || tab.id === this.currentTabId
+      }));
+    } catch (error) {
+      console.error('[PlaywrightCDP] Failed to list tabs via API:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * List all available tabs using legacy approach
+   */
+  private async listTabsLegacy(): Promise<any[]> {
     console.log('[PlaywrightCDP] Listing all tabs');
     
     if (!this.context) {
@@ -683,6 +839,122 @@ export class PlaywrightCDPConnector {
     } catch (error) {
       console.error('[PlaywrightCDP] Failed to list tabs:', error);
       throw error;
+    }
+  }
+
+  /**
+   * List all available tabs - delegates to API or legacy approach
+   */
+  async listTabs(): Promise<any[]> {
+    if (this.useTabApi) {
+      return this.listTabsViaApi();
+    } else {
+      return this.listTabsLegacy();
+    }
+  }
+
+  /**
+   * Sync the Playwright page reference with the Tab API's active tab
+   * This ensures snapshots are taken from the correct tab
+   */
+  private async syncWithActiveTab(): Promise<void> {
+    console.log('[PlaywrightCDP] Syncing with active tab from Tab API');
+    
+    if (!this.context) {
+      console.error('[PlaywrightCDP] No context available for sync');
+      return;
+    }
+    
+    try {
+      // Get the active tab from the Tab API
+      const tabs = await this.tabApiClient.listTabs();
+      const activeTab = tabs.find(t => t.isActive);
+      
+      if (!activeTab) {
+        console.error('[PlaywrightCDP] No active tab found in Tab API');
+        console.error('[PlaywrightCDP] Available tabs:', tabs.map(t => ({ id: t.id, url: t.url, isActive: t.isActive })));
+        return;
+      }
+      
+      console.log(`[PlaywrightCDP] Active tab from API: ${activeTab.id} (${activeTab.url})`);
+      
+      // Find the matching page
+      const pages = this.context.pages().filter(p => 
+        !p.url().includes('localhost') && 
+        !p.url().includes('webpack') && 
+        !p.url().includes('file://')
+      );
+      
+      console.log(`[PlaywrightCDP] Found ${pages.length} content pages`);
+      pages.forEach((page, index) => {
+        console.log(`[PlaywrightCDP]   Page ${index}: ${page.url()}`);
+      });
+      
+      let matchedPage: Page | null = null;
+      
+      // First try: Match by URL (most reliable for new tabs)
+      matchedPage = pages.find(p => p.url() === activeTab.url) || null;
+      
+      if (matchedPage) {
+        console.log(`[PlaywrightCDP] Found matching page by URL: ${matchedPage.url()}`);
+      } else {
+        console.log('[PlaywrightCDP] No URL match found, trying other methods...');
+        
+        // Try to get CDP target mapping
+        const cdpTargets = await this.tabApiClient.getCdpTargets();
+        
+        if (cdpTargets && Object.keys(cdpTargets).length > 0) {
+          const targetInfo = cdpTargets[activeTab.id];
+          if (targetInfo) {
+            console.log(`[PlaywrightCDP] CDP target ID for active tab: ${targetInfo.cdpTargetId}`);
+            
+            // Try to match by CDP target ID
+            for (const page of pages) {
+              try {
+                // Get the CDP session for this page
+                const client = await this.context.newCDPSession(page);
+                const pageTargetInfo = await client.send('Target.getTargetInfo');
+                await client.detach();
+                
+                console.log(`[PlaywrightCDP] Page ${page.url()} has CDP target: ${pageTargetInfo.targetInfo.targetId}`);
+                
+                if (pageTargetInfo.targetInfo.targetId === targetInfo.cdpTargetId) {
+                  matchedPage = page;
+                  console.log(`[PlaywrightCDP] Found matching page by CDP target ID`);
+                  break;
+                }
+              } catch (error) {
+                console.error(`[PlaywrightCDP] Error getting CDP target for page:`, error);
+              }
+            }
+          }
+        }
+        
+        // Last resort: Use the most recently navigated page
+        if (!matchedPage && pages.length > 0) {
+          // Sort by navigation time if possible, otherwise use the last page
+          matchedPage = pages[pages.length - 1];
+          console.log(`[PlaywrightCDP] Using last page as fallback: ${matchedPage.url()}`);
+        }
+      }
+      
+      if (matchedPage) {
+        this.page = matchedPage;
+        this.currentTabId = activeTab.id;
+        this.tabPageMap.set(activeTab.id, matchedPage);
+        this.pageToTabMap.set(matchedPage, activeTab.id);
+        
+        // Bring the page to front
+        await matchedPage.bringToFront();
+        
+        console.log(`[PlaywrightCDP] Successfully synced to active tab ${activeTab.id}: ${matchedPage.url()}`);
+      } else {
+        console.error('[PlaywrightCDP] Could not find matching page for active tab');
+        console.error('[PlaywrightCDP] Active tab URL:', activeTab.url);
+        console.error('[PlaywrightCDP] Available page URLs:', pages.map(p => p.url()));
+      }
+    } catch (error) {
+      console.error('[PlaywrightCDP] Error syncing with active tab:', error);
     }
   }
 }

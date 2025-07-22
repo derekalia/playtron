@@ -38,7 +38,7 @@ const resize = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_resize called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -68,7 +68,7 @@ const getPageInfo = defineTool({
   handle: async (connector) => {
     console.error('[MCP-CDP] Tool: browser_page_info called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }

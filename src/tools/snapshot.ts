@@ -14,7 +14,7 @@ const snapshot = defineTool({
   handle: async (connector) => {
     console.error('[MCP-CDP] Tool: browser_snapshot called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -64,11 +64,10 @@ const snapshot = defineTool({
 
 // Helper to get page snapshot with element references
 async function getPageSnapshot(connector: any): Promise<string> {
-  if (!connector.getPage()) {
+  const page = await connector.getPage();
+  if (!page) {
     throw new Error('No page connected');
   }
-  
-  const page = connector.getPage();
   
   // Get accessibility tree
   const snapshot = await page.accessibility.snapshot({

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { defineTool, successResult, errorResult } from './tool';
+import { TabApiClient } from '../tab-api-client';
 
 const tabNew = defineTool({
   capability: 'tabs',
@@ -98,12 +99,41 @@ const tabClose = defineTool({
     }),
     type: 'destructive',
   },
-  handle: async () => {
+  handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_tab_close called');
     try {
-      // This would require implementing tab close functionality in the connector
-      // For now, return a message indicating the limitation
-      return successResult('Tab close functionality not yet implemented for Electron browser');
+      const tabApiClient = new TabApiClient();
+      
+      // Check if Tab API is available
+      const apiAvailable = await tabApiClient.isAvailable();
+      if (!apiAvailable) {
+        return successResult('Tab close functionality requires Tab API to be available');
+      }
+      
+      // Get list of tabs to find the tab ID
+      const tabs = await connector.listTabs();
+      
+      let tabToClose: any;
+      if (params.index !== undefined) {
+        if (params.index < 0 || params.index >= tabs.length) {
+          return errorResult(`Invalid tab index: ${params.index}. Available tabs: ${tabs.length}`);
+        }
+        tabToClose = tabs[params.index];
+      } else {
+        // Close the current active tab
+        tabToClose = tabs.find(tab => tab.isActive);
+        if (!tabToClose) {
+          return errorResult('No active tab found to close');
+        }
+      }
+      
+      // Close the tab via API
+      await tabApiClient.closeTab(tabToClose.id);
+      
+      // Clean up internal state
+      connector.removeTab(tabToClose.id);
+      
+      return successResult(`Successfully closed tab: ${tabToClose.title || tabToClose.url}`);
     } catch (error) {
       console.error('[MCP-CDP] Close tab failed:', error);
       return errorResult(`Close tab failed: ${(error as Error).message}`);

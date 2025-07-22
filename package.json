@@ -4,13 +4,15 @@
   "description": "MCP server for Electron browser control via CDP - compatible with any MCP client",
   "main": "dist/index.js",
   "scripts": {
-    "start": "tsx src/index.ts",
-    "dev": "tsx src/index.ts",
+    "start": "node start-playtron.js",
+    "dev": "node start-playtron.js",
     "stop": "./stop-playtron.sh",
-    "start:sse": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 tsx src/index.ts",
-    "start:httpStream": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 tsx src/index.ts",
-    "start:stdio": "TRANSPORT_TYPE=stdio tsx src/index.ts",
+    "status": "./status-playtron.sh",
+    "start:sse": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 node start-playtron.js",
+    "start:httpStream": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 node start-playtron.js",
+    "start:stdio": "TRANSPORT_TYPE=stdio node start-playtron.js",
     "start:port": "npm run start:httpStream",
+    "start:direct": "tsx src/index.ts",
     "build": "tsc",
     "lint": "eslint --ext .ts src/",
     "test": "node test-mcp-connection.js",
@@ -19,6 +21,7 @@
     "test-direct": "node test-direct-inspector.js",
     "test-waiting": "node test-browser-waiting.js",
     "test-sse": "node test-sse-connection.js",
+    "test-tab-api": "node test-tab-api.js",
     "inspect": "node run-inspector.js"
   },
   "keywords": [

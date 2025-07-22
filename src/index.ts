@@ -83,16 +83,25 @@ const connector = new PlaywrightCDPConnector();
 let isConnected = false;
 let requestCount = 0;
 
+// Check if we're running under the wrapper
+const isUnderWrapper = !!process.env.PLAYTRON_WRAPPER_PID;
+if (isUnderWrapper) {
+  console.error(`[MCP-CDP] Running under wrapper (PID: ${process.env.PLAYTRON_WRAPPER_PID})`);
+}
+
 // Enhanced error handling for uncaught errors
 process.on('uncaughtException', (error) => {
   console.error('[MCP-CDP] Uncaught Exception:', error);
   console.error('[MCP-CDP] Stack:', error.stack);
-  // Don't exit - try to recover
+  // Attempt graceful shutdown
+  cleanup('uncaughtException').catch(() => {
+    process.exit(1);
+  });
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[MCP-CDP] Unhandled Rejection at:', promise, 'reason:', reason);
-  // Don't exit - try to recover
+  // Don't exit immediately - just log for debugging
 });
 
 // Add heartbeat to show server is alive (every 5 minutes)
@@ -107,63 +116,103 @@ let statusInterval: NodeJS.Timeout | null = null;
 let isShuttingDown = false;
 
 // Graceful shutdown handler
-async function cleanup() {
+async function cleanup(signal?: string) {
   if (isShuttingDown) {
+    console.error('[MCP-CDP] Already shutting down, ignoring duplicate signal');
     return;
   }
   isShuttingDown = true;
   
-  console.error('[MCP-CDP] Starting cleanup...');
+  console.error(`[MCP-CDP] Starting cleanup (signal: ${signal || 'unknown'})...`);
   
-  // Clear intervals
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-  }
-  if (statusInterval) {
-    clearInterval(statusInterval);
-  }
+  // Set a hard timeout for cleanup
+  const cleanupTimeout = setTimeout(() => {
+    console.error('[MCP-CDP] Cleanup timeout exceeded, forcing exit');
+    process.exit(1);
+  }, 10000); // 10 second timeout
   
-  // Disconnect from browser
-  if (connector) {
-    try {
-      await connector.disconnect();
-    } catch (error) {
-      console.error('[MCP-CDP] Error during disconnect:', error);
+  try {
+    // Clear intervals
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval);
     }
+    if (statusInterval) {
+      clearInterval(statusInterval);
+    }
+    
+    // Stop the MCP server
+    if (server) {
+      try {
+        console.error('[MCP-CDP] Stopping MCP server...');
+        // Note: FastMCP might not have a stop method, but we try anyway
+        if (typeof (server as any).stop === 'function') {
+          await (server as any).stop();
+        }
+      } catch (error) {
+        console.error('[MCP-CDP] Error stopping server:', error);
+      }
+    }
+    
+    // Disconnect from browser
+    if (connector && connector.isConnected()) {
+      try {
+        console.error('[MCP-CDP] Disconnecting from browser...');
+        await connector.disconnect();
+      } catch (error) {
+        console.error('[MCP-CDP] Error during disconnect:', error);
+      }
+    }
+    
+    // Remove lock file
+    removeLockFile();
+    
+    // Clear the cleanup timeout
+    clearTimeout(cleanupTimeout);
+    
+    console.error('[MCP-CDP] Cleanup complete, exiting...');
+    process.exit(0);
+  } catch (error) {
+    console.error('[MCP-CDP] Error during cleanup:', error);
+    clearTimeout(cleanupTimeout);
+    process.exit(1);
   }
-  
-  // Remove lock file
-  removeLockFile();
-  
-  console.error('[MCP-CDP] Cleanup complete, exiting...');
-  process.exit(0);
 }
 
 // Handle all possible shutdown signals
 process.on('SIGINT', async () => {
-  console.error('[MCP-CDP] Received SIGINT, shutting down gracefully...');
-  await cleanup();
+  console.error('\n[MCP-CDP] Received SIGINT (Ctrl+C), shutting down gracefully...');
+  // Don't await - start cleanup asynchronously to be more responsive
+  cleanup('SIGINT').catch((err) => {
+    console.error('[MCP-CDP] Error during cleanup:', err);
+    process.exit(1);
+  });
 });
 
 process.on('SIGTERM', async () => {
   console.error('[MCP-CDP] Received SIGTERM, shutting down gracefully...');
-  await cleanup();
+  await cleanup('SIGTERM');
 });
 
 process.on('SIGHUP', async () => {
   console.error('[MCP-CDP] Received SIGHUP, shutting down gracefully...');
-  await cleanup();
+  await cleanup('SIGHUP');
 });
 
 // Handle process exits
-process.on('exit', () => {
-  console.error('[MCP-CDP] Process exiting...');
+process.on('exit', (code) => {
+  console.error(`[MCP-CDP] Process exiting with code ${code}`);
+  removeLockFile();
+  
+  // If we're in a wrapper, notify it
+  if (process.env.PLAYTRON_WRAPPER_PID) {
+    console.error('[MCP-CDP] Notifying wrapper process of exit');
+  }
 });
 
 // Handle when parent process dies (important for child processes)
 process.on('disconnect', async () => {
   console.error('[MCP-CDP] Parent process disconnected, shutting down...');
-  await cleanup();
+  await cleanup('disconnect');
 });
 
 // Helper function to ensure we're connected
@@ -181,6 +230,7 @@ async function ensureConnected(): Promise<void> {
     
     if (!isConnected || !connector.isConnected()) {
       console.error('[MCP-CDP] Not connected, establishing connection...');
+      // The connect method will check Tab API availability internally
       await connector.connect();
       isConnected = true;
       console.error('[MCP-CDP] Successfully connected to Electron browser');
@@ -191,7 +241,7 @@ async function ensureConnected(): Promise<void> {
     // Ensure we're controlling the correct page (WebContentsView, not the UI)
     await connector.ensureCorrectPage();
     
-    const page = connector.getPage();
+    const page = await connector.getPage();
     if (!page) {
       console.error('[MCP-CDP] ERROR: No page available after connection');
       throw new Error('No page available in Playwright connection');
@@ -323,7 +373,7 @@ async function startServer() {
       // Add status monitoring
       statusInterval = setInterval(() => {
         console.error(`[MCP-CDP] 📊 Status: ${requestCount} requests processed so far`);
-      }, 10000);
+      }, 30000); // 30 seconds
     } else {
       console.error('[MCP-CDP] ✅ MCP server started successfully on stdio');
     }

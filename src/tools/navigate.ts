@@ -18,7 +18,7 @@ const navigate = defineTool({
     console.error(`[MCP-CDP] Tool: browser_navigate called to ${params.url}`);
     
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -74,7 +74,7 @@ const goBack = defineTool({
   handle: async (connector) => {
     console.error('[MCP-CDP] Tool: browser_navigate_back called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -100,7 +100,7 @@ const goForward = defineTool({
   handle: async (connector) => {
     console.error('[MCP-CDP] Tool: browser_navigate_forward called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }
@@ -129,7 +129,7 @@ const reload = defineTool({
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_reload called');
     try {
-      const page = connector.getPage();
+      const page = await connector.getPage();
       if (!page) {
         throw new Error('No page connected');
       }

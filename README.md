@@ -13,18 +13,24 @@ A standalone MCP (Model Context Protocol) server that communicates with the Elec
 ## Prerequisites
 
 - Node.js 18+
-- The Electron browser component must be running with CDP enabled on port 9222
+- The Electron browser component must be running with:
+  - CDP enabled on port 9222 (required)
+  - Tab Management API on port 9223 (optional but recommended)
 
 ### Starting the Browser
 
-The MCP server requires the Electron browser to be running first:
+The MCP server requires the Electron browser to be running with both CDP and Tab API:
 
 ```bash
 # From the project root
 cd browser-test && npm run dev
 ```
 
-This starts the browser with CDP enabled on port 9222.
+The browser should expose:
+- Chrome DevTools Protocol on `http://localhost:9222` (required)
+- Tab Management API on `http://localhost:9223/api` (optional)
+
+The server will automatically detect which services are available and use the appropriate mode.
 
 ## Installation
 
@@ -63,31 +69,52 @@ Add to your MCP client's configuration file:
 }
 ```
 
-## Available MCP Tools
+## Available MCP Tools (28 Total)
 
-### Navigation
-- `navigate` - Navigate to URL with wait options and timeout handling
-- `goBack`, `goForward`, `reload` - Browser navigation controls
-- `getPageInfo` - Get current page URL and title
+### Navigation (5 tools)
+- `browser_navigate` - Navigate to URL with wait options and timeout handling
+- `browser_navigate_back` - Go back in browser history
+- `browser_navigate_forward` - Go forward in browser history
+- `browser_reload` - Reload the current page
+- `browser_page_info` - Get current page URL and title
 
-### Interaction
-- `click` - Click elements with CSS/XPath selectors and auto-scroll
-- `type` - Type text with configurable delay
-- `fill` - Fill input fields instantly
-- `selectOption` - Select dropdown options
-- `setChecked` - Check/uncheck checkboxes
+### Mouse Interaction (6 tools)
+- `browser_click` - Click elements using Playwright selectors with auto-scroll
+- `browser_hover` - Hover over elements
+- `browser_drag` - Drag from one element to another
+- `browser_mouse_click_xy` - Click at specific coordinates
+- `browser_mouse_move_xy` - Move mouse to specific coordinates
+- `browser_mouse_drag_xy` - Drag between coordinates
 
-### Inspection
-- `screenshot` - Capture full page or element screenshots
-- `getAccessibilitySnapshot` / `browser_snapshot` - Extract page structure without screenshots
-- `getText` - Get text using Playwright selectors (text=, role=, etc.)
-- `evaluate` - Execute JavaScript in page context
-- `waitForSelector` - Wait for elements to appear
+### Keyboard Interaction (5 tools)
+- `browser_type` - Type text with configurable delay
+- `browser_fill` - Fill input fields instantly
+- `browser_press_key` - Press keyboard keys (e.g., Enter, Escape)
+- `browser_select_option` - Select dropdown options
+- `browser_set_checked` - Check/uncheck checkboxes and radio buttons
 
-### Tab Management
-- `createTab` - Create new browser tabs with optional URL
-- `switchTab` - Switch between tabs by ID
-- `listTabs` - List all tabs with URLs and titles
+### Page Inspection (5 tools)
+- `browser_snapshot` - Extract page structure with element references
+- `browser_take_screenshot` - Capture full page or element screenshots
+- `browser_get_text` - Get text using Playwright selectors
+- `browser_evaluate` - Execute JavaScript in page context
+- `browser_page_info` - Get current page metadata
+
+### Tab Management (4 tools)
+- `browser_tab_new` - Create new browser tabs with optional URL
+- `browser_tab_select` - Switch between tabs by ID
+- `browser_tab_list` - List all tabs with URLs and titles
+- `browser_tab_close` - Close specific tabs
+
+### Browser Control (2 tools)
+- `browser_close` - Close the browser
+- `browser_resize` - Resize browser viewport
+
+### Wait Operations (2 tools)
+- `browser_wait_for` - Wait for navigation, network idle, or timeout
+- `browser_wait_for_selector` - Wait for elements to appear
+
+All tools support Playwright's powerful selector engine including CSS, XPath, text=, role=, and more.
 
 
 ## Debugging
@@ -135,8 +162,9 @@ The Inspector provides:
 ## Development
 
 ```bash
-npm start          # Start MCP server (connects to browser via CDP)
+npm start          # Start MCP server with process name "playtron-mcp-server"
 npm run dev        # Development mode (same as start)
+npm run stop       # Gracefully stop all Playtron processes
 npm run build      # Build TypeScript to dist/
 npm run lint       # Run ESLint on TypeScript files
 npm run test       # Test MCP connection
@@ -152,16 +180,93 @@ npm run test
 node test-tools.js
 ```
 
+## Process Management
+
+### Starting the Server
+The server runs with a descriptive process name `playtron-mcp-server` for easy identification:
+```bash
+npm start   # Starts with wrapper that manages the process lifecycle
+```
+
+### Stopping the Server
+To gracefully stop all Playtron processes:
+```bash
+npm run stop   # Sends SIGTERM, waits 5s, then SIGKILL if needed
+```
+
+### Emergency Cleanup
+If processes become orphaned:
+```bash
+./cleanup-playtron.sh   # Interactive cleanup of all Playtron processes
+```
+
+### Process Information
+- Process info stored in `.playtron.process.json`
+- Legacy lock file in `.playtron.lock`
+- Wrapper process manages child lifecycle
+- Graceful shutdown on SIGINT (Ctrl+C), SIGTERM, SIGHUP
+- 10-second cleanup timeout before force exit
+
+### Control-C Handling
+The server handles Control-C (SIGINT) gracefully:
+1. Wrapper catches the signal first
+2. Forwards signal to child process
+3. Waits up to 5 seconds for graceful shutdown
+4. Cleans up resources (browser connection, lock files)
+5. Exits cleanly
+
+You can test Control-C handling with:
+```bash
+./test-sigint.sh   # Automated test of Control-C behavior
+```
+
 ## Architecture
 
 ### Communication Flow
+
+#### New Architecture (with Tab API)
 ```
-MCP Client <-> MCP Server (stdio) <-> CDP (localhost:9222) <-> Electron Browser
+MCP Client <-> MCP Server (stdio/httpStream) <-> HTTP API (localhost:9223) <-> Browser Tab Manager
+                                             └-> CDP (localhost:9222) <-> Direct page connection
+```
+
+#### Legacy Architecture (fallback)
+```
+MCP Client <-> MCP Server (stdio/httpStream) <-> Find Control Page <-> page.evaluate() <-> window.electronAPI <-> Browser
+                                             └-> CDP (localhost:9222) <-┘
 ```
 
 ### Core Components
-- **MCP Server** (`src/index.ts`) - FastMCP server with Playwright CDP connector
-- **CDP Connector** (`src/playwright-cdp-connector.ts`) - Bridges Playwright to Electron's CDP endpoint
+- **MCP Server** (`src/index.ts`) - FastMCP server with modular tool architecture
+- **CDP Connector** (`src/playwright-cdp-connector.ts`) - Manages CDP connections and page state
+- **Tab API Client** (`src/tab-api-client.ts`) - HTTP client for Tab Management API
+- **Tool Modules** (`src/tools/`) - 28 browser automation tools organized by capability
+
+### Tool Organization
+Tools are organized by capability:
+- **Navigation**: browser_navigate, browser_navigate_back, browser_navigate_forward, browser_reload
+- **Mouse**: browser_click, browser_hover, browser_drag, browser_mouse_click_xy, browser_mouse_move_xy, browser_mouse_drag_xy
+- **Keyboard**: browser_press_key, browser_type, browser_fill, browser_select_option, browser_set_checked
+- **Inspection**: browser_snapshot, browser_take_screenshot, browser_evaluate, browser_get_text, browser_page_info
+- **Tabs**: browser_tab_new, browser_tab_select, browser_tab_list, browser_tab_close
+- **Control**: browser_close, browser_resize
+- **Wait**: browser_wait_for, browser_wait_for_selector
+
+### Tab Management Modes
+The server supports two modes for tab management:
+
+1. **Tab API Mode** (Recommended)
+   - Direct HTTP API calls to `localhost:9223`
+   - Clean separation between browser state and automation
+   - Reliable tab creation, switching, and listing
+   - No need to search for control pages
+   - Better error handling and performance
+
+2. **Legacy Mode** (Fallback)
+   - Falls back when Tab API is not available
+   - Uses page evaluation through control pages
+   - Requires finding and communicating with special control pages
+   - More complex but ensures backward compatibility
 
 ## Related Documentation
 
