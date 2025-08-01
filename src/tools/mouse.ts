@@ -56,7 +56,7 @@ const click = defineTool({
         await page.dblclick(selector, {
           button: params.button,
           delay: params.delay,
-          timeout: params.timeout || 30000
+          timeout: params.timeout || 5000
         });
         return successResult(`Successfully double-clicked element: ${params.element || selector}`);
       } else {
@@ -64,7 +64,7 @@ const click = defineTool({
           button: params.button,
           clickCount: params.clickCount,
           delay: params.delay,
-          timeout: params.timeout || 30000
+          timeout: params.timeout || 5000
         });
         return successResult(`Successfully clicked element: ${params.element || selector}`);
       }

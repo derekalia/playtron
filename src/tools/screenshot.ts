@@ -51,9 +51,8 @@ const screenshot = defineTool({
           quality: params.raw ? undefined : 90
         });
       } else {
-        // Full page screenshot
+        // Viewport screenshot (visible area only)
         buffer = await page.screenshot({
-          fullPage: true,
           type: params.raw ? 'png' : 'jpeg',
           quality: params.raw ? undefined : 90
         });

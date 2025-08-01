@@ -32,14 +32,14 @@ const waitFor = defineTool({
         // Wait for text to appear
         await page.locator(`text="${params.text}"`).waitFor({
           state: 'visible',
-          timeout: 30000
+          timeout: 5000
         });
         return successResult(`Text "${params.text}" appeared on the page`);
       } else if (params.textGone) {
         // Wait for text to disappear
         await page.locator(`text="${params.textGone}"`).waitFor({
           state: 'hidden',
-          timeout: 30000
+          timeout: 5000
         });
         return successResult(`Text "${params.textGone}" disappeared from the page`);
       }
@@ -76,7 +76,7 @@ const waitForSelector = defineTool({
       
       await page.waitForSelector(params.selector, {
         state: params.state as any,
-        timeout: params.timeout || 30000
+        timeout: params.timeout || 5000
       });
       
       return successResult(`Successfully waited for element with selector: ${params.selector} (state: ${params.state || 'attached'})`);

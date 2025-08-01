@@ -23,7 +23,7 @@ const navigate = defineTool({
         throw new Error('No page connected');
       }
       
-      const timeout = 30000;
+      const timeout = 5000;
       let response = null;
       let navigationError = null;
       
