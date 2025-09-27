@@ -29,22 +29,28 @@ const evaluate = defineTool({
       // Check if we need to evaluate on an element
       if (params.ref || params.selector) {
         let selector = params.selector;
-        
+
         // If ref is provided, resolve it to a selector
         if (params.ref && elementReferences.has(params.ref)) {
           selector = elementReferences.get(params.ref);
         }
-        
+
         if (!selector) {
           return errorResult('No valid selector found for element evaluation');
         }
-        
+
         // Evaluate on the element
-        const element = await page.locator(selector).first();
-        result = await element.evaluate(params.function);
+        const element = page.locator(selector).first();
+        result = await element.evaluate((el, fnString) => {
+          const fn = new Function('element', `return (${fnString})(element)`);
+          return fn(el);
+        }, params.function);
       } else {
         // Evaluate on the page
-        result = await page.evaluate(params.function);
+        result = await page.evaluate((fnString) => {
+          const fn = new Function(`return (${fnString})()`);
+          return fn();
+        }, params.function);
       }
       
       return successResult(`JavaScript evaluation result: ${JSON.stringify(result, null, 2)}`);
