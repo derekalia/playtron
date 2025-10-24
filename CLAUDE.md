@@ -106,9 +106,37 @@ Tools are organized by capability:
 
 6. **Timeout Management**: Most tools have a default 30-second timeout that can be configured.
 
+## MCP Client Configuration
+
+To use playtron with MCP clients like Claude Desktop, add to your config (e.g., `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "playtron": {
+      "command": "npx",
+      "args": ["-y", "playtron"]
+    }
+  }
+}
+```
+
+Or if installed globally:
+```json
+{
+  "mcpServers": {
+    "playtron": {
+      "command": "playtron"
+    }
+  }
+}
+```
+
 ## Recent Refactoring
 
 The project was recently refactored from a monolithic structure (958-line index.ts) to a modular architecture matching the Playwright MCP pattern. This improved maintainability and expanded the tool set from 18 to 28 tools.
+
+Additional cleanup removed development-only scripts (start-playtron.js, stop-playtron.sh, etc.) to streamline the package for npm distribution.
 
 ## Common Development Tasks
 
