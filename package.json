@@ -1,6 +1,6 @@
 {
   "name": "playtron",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for Electron browser control via CDP - compatible with any MCP client",
   "main": "dist/index.js",
   "bin": {
