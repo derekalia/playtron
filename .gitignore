@@ -7,3 +7,4 @@ node_modules
 
 dist
 .playtron.lock
+.mcp.json
