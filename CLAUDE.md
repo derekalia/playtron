@@ -6,18 +6,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a TypeScript MCP (Model Context Protocol) server called "playtron" that enables browser automation through the Chrome DevTools Protocol (CDP). The server acts as a bridge between MCP clients (like AI assistants) and an Electron browser, providing 28 browser automation tools organized in a modular architecture.
 
+**Repository**: https://github.com/derekalia/playtron
+**Package**: Available on npm as `playtron`
+
 ## Development Commands
 
 ### Build and Development
 - `npm run build` - Compile TypeScript to JavaScript in dist/
 - `npm run lint` - Run ESLint on TypeScript source files
-- `npm start` or `npm run dev` - Start the MCP server (requires Electron browser running on port 9222)
+- `npm start` - Run the compiled server (requires build first)
+- `npm run dev` - Run from source with tsx (no build needed)
 
-### Testing
-The project uses manual test scripts (no formal testing framework):
-- `npm run test` - Test MCP connection
-- `npm run test-tools` - Test available tools
-- `npm run inspect` - Launch MCP Inspector for interactive debugging
+### Installation
+Install globally:
+```bash
+npm install -g playtron
+playtron
+```
+
+Or use with npx (no installation):
+```bash
+npx playtron
+```
 
 ### Running the Browser
 Before starting the MCP server, the Electron browser must be running:
@@ -111,4 +121,4 @@ The project was recently refactored from a monolithic structure (958-line index.
 ### Debugging Connection Issues
 1. Check if Electron browser is running: `curl http://localhost:9222/json/version`
 2. Verify MCP server logs show "Successfully connected to Electron browser"
-3. Use MCP Inspector: `npm run inspect`
+3. Use MCP Inspector for interactive debugging: `npx @modelcontextprotocol/inspector playtron`

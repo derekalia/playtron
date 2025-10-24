@@ -7,4 +7,10 @@ node_modules
 
 dist
 .playtron.lock
+.playtron.process.json
 .mcp.json
+.cursor/mcp.json
+
+.cursor
+
+.claude

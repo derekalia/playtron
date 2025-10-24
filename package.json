@@ -6,36 +6,38 @@
   "bin": {
     "playtron": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "start": "node start-playtron.js",
-    "dev": "node start-playtron.js",
-    "stop": "./stop-playtron.sh",
-    "status": "./status-playtron.sh",
-    "start:sse": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 node start-playtron.js",
-    "start:httpStream": "TRANSPORT_TYPE=httpStream MCP_PORT=3002 node start-playtron.js",
-    "start:stdio": "TRANSPORT_TYPE=stdio node start-playtron.js",
-    "start:port": "npm run start:httpStream",
-    "start:direct": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
     "build": "tsc",
-    "lint": "eslint --ext .ts src/",
-    "test": "node test-mcp-connection.js",
-    "test-tools": "node test-tools.js",
-    "test-inspector": "node test-mcp-inspector.js",
-    "test-direct": "node test-direct-inspector.js",
-    "test-waiting": "node test-browser-waiting.js",
-    "test-sse": "node test-sse-connection.js",
-    "test-tab-api": "node test-tab-api.js",
-    "inspect": "node run-inspector.js"
+    "lint": "eslint --ext .ts src/"
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "electron",
     "browser",
+    "browser-automation",
     "playwright",
-    "cdp"
+    "cdp",
+    "chrome-devtools-protocol"
   ],
-  "author": "",
+  "author": "Derek Alia",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/derekalia/playtron.git"
+  },
+  "homepage": "https://github.com/derekalia/playtron#readme",
+  "bugs": {
+    "url": "https://github.com/derekalia/playtron/issues"
+  },
   "dependencies": {
     "eventsource": "^4.0.0",
     "fastmcp": "^3.9.0",
