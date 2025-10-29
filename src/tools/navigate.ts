@@ -9,16 +9,17 @@ const navigate = defineTool({
     description: 'Navigate to a URL',
     inputSchema: z.object({
       url: z.string().describe('The URL to navigate to'),
+      tabId: z.string().optional().describe('Optional. Specific tab ID to navigate. Defaults to active tab. Use browser_tabs_list to discover available tab IDs.'),
       waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']).optional()
         .describe('When to consider navigation finished')
     }),
     type: 'destructive',
   },
   handle: async (connector, params) => {
-    console.error(`[MCP-CDP] Tool: browser_navigate called to ${params.url}`);
-    
+    console.error(`[MCP-CDP] Tool: browser_navigate called to ${params.url}${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
+
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
@@ -54,10 +55,14 @@ const navigate = defineTool({
       
       const status = response?.status() || 200;
       return successResult(`Successfully navigated to ${currentUrl}\nTitle: ${title}\nStatus: ${status}`);
-      
+
     } catch (error) {
       console.error('[MCP-CDP] Navigate failed:', error);
-      return errorResult(`Navigation error: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Navigation error: ${errorMessage}`);
     }
   },
 });
@@ -68,22 +73,28 @@ const goBack = defineTool({
     name: 'browser_navigate_back',
     title: 'Go back',
     description: 'Go back to the previous page',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to go back. Defaults to active tab.')
+    }),
     type: 'readOnly',
   },
-  handle: async (connector) => {
-    console.error('[MCP-CDP] Tool: browser_navigate_back called');
+  handle: async (connector, params) => {
+    console.error(`[MCP-CDP] Tool: browser_navigate_back called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.goBack();
       return successResult('Successfully navigated back in browser history');
     } catch (error) {
       console.error('[MCP-CDP] GoBack failed:', error);
-      return errorResult(`Go back failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Go back failed: ${errorMessage}`);
     }
   },
 });
@@ -94,22 +105,28 @@ const goForward = defineTool({
     name: 'browser_navigate_forward',
     title: 'Go forward',
     description: 'Go forward to the next page',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to go forward. Defaults to active tab.')
+    }),
     type: 'readOnly',
   },
-  handle: async (connector) => {
-    console.error('[MCP-CDP] Tool: browser_navigate_forward called');
+  handle: async (connector, params) => {
+    console.error(`[MCP-CDP] Tool: browser_navigate_forward called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.goForward();
       return successResult('Successfully navigated forward in browser history');
     } catch (error) {
       console.error('[MCP-CDP] GoForward failed:', error);
-      return errorResult(`Go forward failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Go forward failed: ${errorMessage}`);
     }
   },
 });
@@ -121,26 +138,31 @@ const reload = defineTool({
     title: 'Reload page',
     description: 'Reload the current page',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to reload. Defaults to active tab.'),
       waitUntil: z.enum(['load', 'domcontentloaded', 'networkidle', 'commit']).optional()
         .describe('When to consider reload finished')
     }),
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_reload called');
+    console.error(`[MCP-CDP] Tool: browser_reload called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.reload({
         waitUntil: params.waitUntil as any
       });
       return successResult('Successfully reloaded the page');
     } catch (error) {
       console.error('[MCP-CDP] Reload failed:', error);
-      return errorResult(`Reload failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Reload failed: ${errorMessage}`);
     }
   },
 });

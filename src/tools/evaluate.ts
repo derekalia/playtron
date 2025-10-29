@@ -9,6 +9,7 @@ const evaluate = defineTool({
     title: 'Evaluate JavaScript',
     description: 'Evaluate JavaScript expression on page or element',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to evaluate JavaScript. Defaults to active tab.'),
       function: z.string().describe('() => { /* code */ } or (element) => { /* code */ } when element is provided'),
       element: z.string().optional().describe('Human-readable element description'),
       ref: z.string().optional().describe('Element reference from snapshot'),
@@ -17,9 +18,9 @@ const evaluate = defineTool({
     type: 'destructive',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_evaluate called');
+    console.error(`[MCP-CDP] Tool: browser_evaluate called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
@@ -56,7 +57,11 @@ const evaluate = defineTool({
       return successResult(`JavaScript evaluation result: ${JSON.stringify(result, null, 2)}`);
     } catch (error) {
       console.error('[MCP-CDP] Evaluate failed:', error);
-      return errorResult(`JavaScript evaluation failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tab_list to see available tabs.`);
+      }
+      return errorResult(`JavaScript evaluation failed: ${errorMessage}`);
     }
   },
 });
@@ -68,19 +73,20 @@ const getText = defineTool({
     title: 'Get text content',
     description: 'Get text content of elements using Playwright selectors',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to get text from. Defaults to active tab.'),
       selector: z.string().describe('Playwright selector (supports text=, role=, css, xpath, etc.)'),
       all: z.boolean().optional().describe('Get all matching elements')
     }),
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_get_text called');
+    console.error(`[MCP-CDP] Tool: browser_get_text called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       let text: string | string[];
       if (params.all) {
         const elements = await page.locator(params.selector).all();
@@ -89,11 +95,15 @@ const getText = defineTool({
       } else {
         text = await page.locator(params.selector).first().textContent() || '';
       }
-      
+
       return successResult(`Text content: ${JSON.stringify(text, null, 2)}`);
     } catch (error) {
       console.error('[MCP-CDP] Get text failed:', error);
-      return errorResult(`Get text failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tab_list to see available tabs.`);
+      }
+      return errorResult(`Get text failed: ${errorMessage}`);
     }
   },
 });

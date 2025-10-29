@@ -30,34 +30,49 @@ const tabSelect = defineTool({
   schema: {
     name: 'browser_tab_select',
     title: 'Select a tab',
-    description: 'Select a tab by index',
+    description: 'Activate/switch to a specific tab by ID',
     inputSchema: z.object({
-      index: z.number().describe('The index of the tab to select'),
+      tabId: z.string().describe('Required. The tab ID to activate. Use browser_tab_list to see available tab IDs.'),
+      index: z.number().optional().describe('Deprecated. Use tabId instead. The index of the tab to select.'),
     }),
     type: 'readOnly',
   },
   handle: async (connector, params) => {
     console.error('[MCP-CDP] Tool: browser_tab_select called');
     try {
-      // Get list of tabs first to find the ID by index
-      const tabs = await connector.listTabs();
-      
-      if (params.index < 0 || params.index >= tabs.length) {
-        return errorResult(`Invalid tab index: ${params.index}. Available tabs: ${tabs.length}`);
-      }
-      
-      const tab = tabs[params.index];
-      console.error(`[MCP-CDP] Switching to tab index ${params.index} with ID: ${tab.id}`);
-      const success = await connector.switchTab(tab.id);
-      
-      if (success) {
-        return successResult(`Successfully switched to tab ${params.index}: ${tab.url}`);
+      let targetTabId: string;
+
+      // Support both tabId (new) and index (legacy)
+      if (params.tabId) {
+        targetTabId = params.tabId;
+      } else if (params.index !== undefined) {
+        // Legacy: Get list of tabs first to find the ID by index
+        const tabs = await connector.listTabs();
+
+        if (params.index < 0 || params.index >= tabs.length) {
+          return errorResult(`Invalid tab index: ${params.index}. Available tabs: ${tabs.length}`);
+        }
+
+        targetTabId = tabs[params.index].id;
       } else {
-        return errorResult(`Failed to switch to tab ${params.index}`);
+        return errorResult('Either tabId or index must be provided');
+      }
+
+      console.error(`[MCP-CDP] Switching to tab ID: ${targetTabId}`);
+      const success = await connector.switchTab(targetTabId);
+
+      if (success) {
+        return successResult(`Successfully switched to tab: ${targetTabId}`);
+      } else {
+        return errorResult(`Failed to switch to tab: ${targetTabId}`);
       }
     } catch (error) {
       console.error('[MCP-CDP] Select tab failed:', error);
-      return errorResult(`Select tab failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tab_list to see available tabs.`);
+      }
+      return errorResult(`Select tab failed: ${errorMessage}`);
     }
   },
 });
@@ -93,9 +108,10 @@ const tabClose = defineTool({
   schema: {
     name: 'browser_tab_close',
     title: 'Close a tab',
-    description: 'Close a tab',
+    description: 'Close a specific tab by ID',
     inputSchema: z.object({
-      index: z.number().optional().describe('The index of the tab to close. Closes current tab if not provided'),
+      tabId: z.string().describe('Required. The tab ID to close. Use browser_tab_list to see available tab IDs.'),
+      index: z.number().optional().describe('Deprecated. Use tabId instead. The index of the tab to close.'),
     }),
     type: 'destructive',
   },
@@ -103,40 +119,45 @@ const tabClose = defineTool({
     console.error('[MCP-CDP] Tool: browser_tab_close called');
     try {
       const tabApiClient = new TabApiClient();
-      
+
       // Check if Tab API is available
       const apiAvailable = await tabApiClient.isAvailable();
       if (!apiAvailable) {
         return successResult('Tab close functionality requires Tab API to be available');
       }
-      
-      // Get list of tabs to find the tab ID
-      const tabs = await connector.listTabs();
-      
-      let tabToClose: any;
-      if (params.index !== undefined) {
+
+      let targetTabId: string;
+
+      // Support both tabId (new) and index (legacy)
+      if (params.tabId) {
+        targetTabId = params.tabId;
+      } else if (params.index !== undefined) {
+        // Legacy: Get list of tabs to find the tab ID by index
+        const tabs = await connector.listTabs();
+
         if (params.index < 0 || params.index >= tabs.length) {
           return errorResult(`Invalid tab index: ${params.index}. Available tabs: ${tabs.length}`);
         }
-        tabToClose = tabs[params.index];
+
+        targetTabId = tabs[params.index].id;
       } else {
-        // Close the current active tab
-        tabToClose = tabs.find(tab => tab.isActive);
-        if (!tabToClose) {
-          return errorResult('No active tab found to close');
-        }
+        return errorResult('tabId must be provided');
       }
-      
+
       // Close the tab via API
-      await tabApiClient.closeTab(tabToClose.id);
-      
+      await tabApiClient.closeTab(targetTabId);
+
       // Clean up internal state
-      connector.removeTab(tabToClose.id);
-      
-      return successResult(`Successfully closed tab: ${tabToClose.title || tabToClose.url}`);
+      connector.removeTab(targetTabId);
+
+      return successResult(`Successfully closed tab: ${targetTabId}`);
     } catch (error) {
       console.error('[MCP-CDP] Close tab failed:', error);
-      return errorResult(`Close tab failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tab_list to see available tabs.`);
+      }
+      return errorResult(`Close tab failed: ${errorMessage}`);
     }
   },
 });

@@ -8,6 +8,7 @@ const waitFor = defineTool({
     title: 'Wait for',
     description: 'Wait for text to appear or disappear or a specified time to pass',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for wait action. Defaults to active tab.'),
       time: z.number().optional().describe('The time to wait in seconds'),
       text: z.string().optional().describe('The text to wait for'),
       textGone: z.string().optional().describe('The text to wait for to disappear'),
@@ -17,13 +18,13 @@ const waitFor = defineTool({
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_wait_for called');
+    console.error(`[MCP-CDP] Tool: browser_wait_for called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       if (params.time) {
         // Wait for specified time
         await page.waitForTimeout(params.time * 1000);
@@ -43,11 +44,15 @@ const waitFor = defineTool({
         });
         return successResult(`Text "${params.textGone}" disappeared from the page`);
       }
-      
+
       return errorResult('Invalid wait parameters');
     } catch (error) {
       console.error('[MCP-CDP] Wait for failed:', error);
-      return errorResult(`Wait failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tab_list to see available tabs.`);
+      }
+      return errorResult(`Wait failed: ${errorMessage}`);
     }
   },
 });
@@ -59,6 +64,7 @@ const waitForSelector = defineTool({
     title: 'Wait for selector',
     description: 'Wait for an element to appear',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for wait action. Defaults to active tab.'),
       selector: z.string().describe('Element to wait for'),
       state: z.enum(['attached', 'detached', 'visible', 'hidden']).optional()
         .describe('State to wait for'),
@@ -67,22 +73,26 @@ const waitForSelector = defineTool({
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_wait_for_selector called');
+    console.error(`[MCP-CDP] Tool: browser_wait_for_selector called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.waitForSelector(params.selector, {
         state: params.state as any,
         timeout: params.timeout || 5000
       });
-      
+
       return successResult(`Successfully waited for element with selector: ${params.selector} (state: ${params.state || 'attached'})`);
     } catch (error) {
       console.error('[MCP-CDP] Wait for selector failed:', error);
-      return errorResult(`Wait for selector failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tab_list to see available tabs.`);
+      }
+      return errorResult(`Wait for selector failed: ${errorMessage}`);
     }
   },
 });

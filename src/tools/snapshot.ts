@@ -8,13 +8,15 @@ const snapshot = defineTool({
     name: 'browser_snapshot',
     title: 'Page snapshot',
     description: 'Capture accessibility snapshot of the current page, this is better than screenshot',
-    inputSchema: z.object({}),
+    inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to snapshot. Defaults to active tab.')
+    }),
     type: 'readOnly',
   },
-  handle: async (connector) => {
-    console.error('[MCP-CDP] Tool: browser_snapshot called');
+  handle: async (connector, params) => {
+    console.error(`[MCP-CDP] Tool: browser_snapshot called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
@@ -52,10 +54,19 @@ const snapshot = defineTool({
       };
     } catch (error) {
       console.error('[MCP-CDP] Browser snapshot failed:', error);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`
+          }]
+        };
+      }
       return {
         content: [{
           type: 'text',
-          text: `Error capturing snapshot: ${(error as Error).message}`
+          text: `Error capturing snapshot: ${errorMessage}`
         }]
       };
     }

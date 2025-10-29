@@ -9,6 +9,7 @@ const screenshot = defineTool({
     title: 'Take a screenshot',
     description: 'Take a screenshot of the current page. You can\'t perform actions based on the screenshot, use browser_snapshot for actions.',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID to screenshot. Defaults to active tab.'),
       raw: z.boolean().optional().describe('Whether to return without compression (PNG). Default is false (JPEG)'),
       filename: z.string().optional().describe('File name to save the screenshot to'),
       element: z.string().optional().describe('Human-readable element description to screenshot'),
@@ -18,9 +19,9 @@ const screenshot = defineTool({
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_take_screenshot called');
+    console.error(`[MCP-CDP] Tool: browser_take_screenshot called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
@@ -70,10 +71,19 @@ const screenshot = defineTool({
       };
     } catch (error) {
       console.error('[MCP-CDP] Screenshot failed:', error);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`
+          }]
+        };
+      }
       return {
         content: [{
           type: 'text',
-          text: `Screenshot failed: ${(error as Error).message}`
+          text: `Screenshot failed: ${errorMessage}`
         }]
       };
     }

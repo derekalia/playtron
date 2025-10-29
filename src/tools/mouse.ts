@@ -10,10 +10,6 @@ const baseElementSchema = z.object({
   selector: z.string().optional().describe('CSS selector or Playwright selector')
 });
 
-const elementSchema = baseElementSchema.refine(data => data.selector || data.ref, {
-  message: 'Either selector or ref must be provided'
-});
-
 const click = defineTool({
   capability: 'core',
   schema: {
@@ -21,6 +17,7 @@ const click = defineTool({
     title: 'Click',
     description: 'Perform click on a web page',
     inputSchema: baseElementSchema.extend({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for click action. Defaults to active tab.'),
       doubleClick: z.boolean().optional().describe('Whether to perform a double click'),
       button: z.enum(['left', 'right', 'middle']).optional().describe('Button to click'),
       clickCount: z.number().optional().describe('Number of clicks'),
@@ -30,9 +27,9 @@ const click = defineTool({
     type: 'destructive',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_click called');
+    console.error(`[MCP-CDP] Tool: browser_click called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
@@ -70,7 +67,11 @@ const click = defineTool({
       }
     } catch (error) {
       console.error('[MCP-CDP] Click failed:', error);
-      return errorResult(`Click failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Click failed: ${errorMessage}`);
     }
   },
 });
@@ -81,33 +82,41 @@ const hover = defineTool({
     name: 'browser_hover',
     title: 'Hover mouse',
     description: 'Hover over element on page',
-    inputSchema: elementSchema,
+    inputSchema: baseElementSchema.extend({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for hover action. Defaults to active tab.')
+    }).refine(data => data.selector || data.ref, {
+      message: 'Either selector or ref must be provided'
+    }),
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_hover called');
+    console.error(`[MCP-CDP] Tool: browser_hover called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       let selector = params.selector;
-      
+
       // If ref is provided, resolve it to a selector
       if (params.ref && elementReferences.has(params.ref)) {
         selector = elementReferences.get(params.ref);
       }
-      
+
       if (!selector) {
         return errorResult('No valid selector found.');
       }
-      
+
       await page.hover(selector);
       return successResult(`Successfully hovered over element: ${params.element || selector}`);
     } catch (error) {
       console.error('[MCP-CDP] Hover failed:', error);
-      return errorResult(`Hover failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Hover failed: ${errorMessage}`);
     }
   },
 });
@@ -119,6 +128,7 @@ const drag = defineTool({
     title: 'Drag mouse',
     description: 'Perform drag and drop between two elements',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for drag action. Defaults to active tab.'),
       startElement: z.string().describe('Human-readable source element description'),
       startRef: z.string().optional().describe('Source element reference from snapshot'),
       startSelector: z.string().optional().describe('Source element selector'),
@@ -131,16 +141,16 @@ const drag = defineTool({
     type: 'destructive',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_drag called');
+    console.error(`[MCP-CDP] Tool: browser_drag called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       let startSelector = params.startSelector;
       let endSelector = params.endSelector;
-      
+
       // Resolve refs to selectors
       if (params.startRef && elementReferences.has(params.startRef)) {
         startSelector = elementReferences.get(params.startRef);
@@ -148,16 +158,20 @@ const drag = defineTool({
       if (params.endRef && elementReferences.has(params.endRef)) {
         endSelector = elementReferences.get(params.endRef);
       }
-      
+
       if (!startSelector || !endSelector) {
         return errorResult('Valid selectors not found for start or end elements.');
       }
-      
+
       await page.dragAndDrop(startSelector, endSelector);
       return successResult(`Successfully dragged from ${params.startElement} to ${params.endElement}`);
     } catch (error) {
       console.error('[MCP-CDP] Drag failed:', error);
-      return errorResult(`Drag failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Drag failed: ${errorMessage}`);
     }
   },
 });
@@ -170,6 +184,7 @@ const mouseClickXY = defineTool({
     title: 'Click at coordinates',
     description: 'Click left mouse button at a given position',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for click action. Defaults to active tab.'),
       element: z.string().describe('Human-readable element description'),
       x: z.number().describe('X coordinate'),
       y: z.number().describe('Y coordinate'),
@@ -177,18 +192,22 @@ const mouseClickXY = defineTool({
     type: 'destructive',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_mouse_click_xy called');
+    console.error(`[MCP-CDP] Tool: browser_mouse_click_xy called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.mouse.click(params.x, params.y);
       return successResult(`Successfully clicked at (${params.x}, ${params.y}) on ${params.element}`);
     } catch (error) {
       console.error('[MCP-CDP] Click XY failed:', error);
-      return errorResult(`Click at coordinates failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Click at coordinates failed: ${errorMessage}`);
     }
   },
 });
@@ -200,6 +219,7 @@ const mouseMoveXY = defineTool({
     title: 'Move mouse',
     description: 'Move mouse to a given position',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for mouse move. Defaults to active tab.'),
       element: z.string().describe('Human-readable element description'),
       x: z.number().describe('X coordinate'),
       y: z.number().describe('Y coordinate'),
@@ -207,18 +227,22 @@ const mouseMoveXY = defineTool({
     type: 'readOnly',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_mouse_move_xy called');
+    console.error(`[MCP-CDP] Tool: browser_mouse_move_xy called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.mouse.move(params.x, params.y);
       return successResult(`Successfully moved mouse to (${params.x}, ${params.y})`);
     } catch (error) {
       console.error('[MCP-CDP] Move XY failed:', error);
-      return errorResult(`Move to coordinates failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Move to coordinates failed: ${errorMessage}`);
     }
   },
 });
@@ -230,6 +254,7 @@ const mouseDragXY = defineTool({
     title: 'Drag mouse',
     description: 'Drag left mouse button to a given position',
     inputSchema: z.object({
+      tabId: z.string().optional().describe('Optional. Specific tab ID for drag action. Defaults to active tab.'),
       element: z.string().describe('Human-readable element description'),
       startX: z.number().describe('Start X coordinate'),
       startY: z.number().describe('Start Y coordinate'),
@@ -239,22 +264,26 @@ const mouseDragXY = defineTool({
     type: 'destructive',
   },
   handle: async (connector, params) => {
-    console.error('[MCP-CDP] Tool: browser_mouse_drag_xy called');
+    console.error(`[MCP-CDP] Tool: browser_mouse_drag_xy called${params.tabId ? ` (tab: ${params.tabId})` : ''}`);
     try {
-      const page = await connector.getPage();
+      const page = await connector.getPage(params.tabId);
       if (!page) {
         throw new Error('No page connected');
       }
-      
+
       await page.mouse.move(params.startX, params.startY);
       await page.mouse.down();
       await page.mouse.move(params.endX, params.endY);
       await page.mouse.up();
-      
+
       return successResult(`Successfully dragged from (${params.startX}, ${params.startY}) to (${params.endX}, ${params.endY})`);
     } catch (error) {
       console.error('[MCP-CDP] Drag XY failed:', error);
-      return errorResult(`Drag coordinates failed: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message;
+      if (errorMessage.includes('Tab') && errorMessage.includes('not found')) {
+        return errorResult(`Tab error: ${errorMessage}\nHint: Use browser_tabs_list to see available tabs.`);
+      }
+      return errorResult(`Drag coordinates failed: ${errorMessage}`);
     }
   },
 });
